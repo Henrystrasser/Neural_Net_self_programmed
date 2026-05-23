@@ -15,35 +15,50 @@ B=[[2,3],[4,5],[5,1]]
 
 AB = matrix_mult(A,B)"""
 
-class Loss():
-    def __innit__(name):
-        loss_function = name
-        return loss_function
-    def loss(preds,targets):
-        loss = sum((preds-targets)**2)
-        return loss
-
 
 class Model:
     def __init__(self,input_size,output_size):
         hidden_sizes = 256
-        self.layers = [torch.randn(input_size,hidden_sizes, requires_grad=True),
+        self.layers = [#torch.nn.Conv2d(1, 33, 3, stride=1),
+                       torch.nn.Conv2d(1,16,3,padding=1),
+                       torch.nn.Conv2d(16,32,3,padding=1),
+                       torch.randn(2048,hidden_sizes, requires_grad=True),
                        torch.randn(hidden_sizes,hidden_sizes, requires_grad=True),
                        torch.randn(hidden_sizes,output_size, requires_grad=True)]
-        self.intercepts = [torch.randn(hidden_sizes, requires_grad=True),
+        self.intercepts = [
+                           torch.randn(hidden_sizes, requires_grad=True),
                            torch.randn(hidden_sizes, requires_grad=True),
                            torch.randn(output_size, requires_grad=True)]
+        #for layer in self.layers:
+        #    torch.nn.init.xavier_uniform_(layer)
+    
 
-    def Relu(self,x):
-        x = torch.relu(x)
+    def activation(self,x):
+        #x = torch.relu(x)
+        x = torch.sigmoid(x)
+        #x = torch.nn.functional.gelu(x)
         return x
 
     def forward(self,x):
+
+        x  = torch.reshape(x,(x.shape[0],1,8,8))
         for i,layer in enumerate(self.layers):
-            intercept = self.intercepts[i]
+            if isinstance(layer, torch.nn.Conv2d):
+                # cnn layer
+                x=layer(x)
+                
+                continue
+            x = x.reshape(x.shape[0], -1)
+            intercept = self.intercepts[i-2]
             x = matrix_mult(x,layer) + intercept
+
             if i < len(self.layers) - 1:
-                x = model.Relu(x)
+
+                #alive = (x > 0).any(dim=0)
+                #dead = (~alive).sum()
+                #print("dead",dead,layer.shape)
+
+                x = model.activation(x)
         return x
 
     def train(self,train_data,label_data,batch_size):
@@ -54,7 +69,8 @@ class Model:
                 #for x in train_data[i*batch_size:(i+1)*batch_size]:
                 #    pred = self.forward(x)
                 #    preds_x.append(pred)
-                preds_x = self.forward(train_data[i*batch_size:(i+1)*batch_size])
+                x = train_data[i*batch_size:(i+1)*batch_size]
+                preds_x = self.forward(x)
                 #preds_x = torch.stack(preds_x)
                 preds_x = preds_x.squeeze(1)
 
@@ -67,12 +83,28 @@ class Model:
 
                 learning_rate = 0.01
                 with torch.no_grad():
-                    for i,layer in enumerate(self.layers):
-                        intercept = self.intercepts[i]
-                        layer -= learning_rate * layer.grad
-                        layer.grad.zero_()
-                        intercept -= learning_rate * intercept.grad
-                        intercept.grad.zero_()
+
+                    for i, layer in enumerate(self.layers):
+
+                        # Conv layer
+                        if isinstance(layer, torch.nn.Conv2d):
+
+                            layer.weight -= learning_rate * layer.weight.grad
+
+                            layer.bias -= learning_rate * layer.bias.grad
+
+                            layer.weight.grad.zero_()
+                            layer.bias.grad.zero_()
+
+                        else:
+                            
+                            intercept = self.intercepts[i-2]
+                            
+                            layer -= learning_rate * layer.grad
+                            intercept -= learning_rate * intercept.grad
+
+                            layer.grad.zero_()
+                            intercept.grad.zero_()
 
     def test_model(self,x_test,y_test):
         correct = 0
