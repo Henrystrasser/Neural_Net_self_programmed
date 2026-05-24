@@ -22,21 +22,42 @@ class Model:
         self.layers = [#torch.nn.Conv2d(1, 33, 3, stride=1),
                        torch.nn.Conv2d(1,16,3,padding=1),
                        torch.nn.Conv2d(16,32,3,padding=1),
-                       torch.randn(2048,hidden_sizes, requires_grad=True),
+                       torch.randn(512,hidden_sizes, requires_grad=True),
                        torch.randn(hidden_sizes,hidden_sizes, requires_grad=True),
                        torch.randn(hidden_sizes,output_size, requires_grad=True)]
         self.intercepts = [
                            torch.randn(hidden_sizes, requires_grad=True),
                            torch.randn(hidden_sizes, requires_grad=True),
                            torch.randn(output_size, requires_grad=True)]
-        #for layer in self.layers:
-        #    torch.nn.init.xavier_uniform_(layer)
+        for layer in self.layers[2:]:
+            #torch.nn.init.xavier_uniform_(layer)
+            torch.nn.init.kaiming_uniform_(layer)
+
+        self.params = []
+
+        for layer in self.layers:
+
+            if isinstance(layer, torch.nn.Conv2d):
+
+                self.params.append(layer.weight)
+                self.params.append(layer.bias)
+
+            else:
+                self.params.append(layer)
+
+        for intercept in self.intercepts:
+            self.params.append(intercept)
+
+        self.optimizer = torch.optim.Adam(
+            self.params,
+            lr=0.001
+        )
     
 
     def activation(self,x):
         #x = torch.relu(x)
-        x = torch.sigmoid(x)
-        #x = torch.nn.functional.gelu(x)
+        #x = torch.sigmoid(x)
+        x = torch.nn.functional.gelu(x)
         return x
 
     def forward(self,x):
@@ -46,19 +67,21 @@ class Model:
             if isinstance(layer, torch.nn.Conv2d):
                 # cnn layer
                 x=layer(x)
-                
-                continue
-            x = x.reshape(x.shape[0], -1)
-            intercept = self.intercepts[i-2]
-            x = matrix_mult(x,layer) + intercept
+                if i ==1:
+                    x = torch.nn.functional.max_pool2d(x, 2)
+                x = self.activation(x)
+            else:
+                x = x.reshape(x.shape[0], -1)
+                intercept = self.intercepts[i-2]
+                x = matrix_mult(x,layer) + intercept
 
-            if i < len(self.layers) - 1:
+                if i < len(self.layers) - 1:
 
-                #alive = (x > 0).any(dim=0)
-                #dead = (~alive).sum()
-                #print("dead",dead,layer.shape)
+                    #alive = (x > 0).any(dim=0)
+                    #dead = (~alive).sum()
+                    #print("dead",dead,layer.shape)
 
-                x = model.activation(x)
+                    x = self.activation(x)
         return x
 
     def train(self,train_data,label_data,batch_size):
@@ -79,32 +102,13 @@ class Model:
                     preds_x,
                     labels_x
                 )
+
+                self.optimizer.zero_grad()
+
                 loss.backward()
 
-                learning_rate = 0.01
-                with torch.no_grad():
-
-                    for i, layer in enumerate(self.layers):
-
-                        # Conv layer
-                        if isinstance(layer, torch.nn.Conv2d):
-
-                            layer.weight -= learning_rate * layer.weight.grad
-
-                            layer.bias -= learning_rate * layer.bias.grad
-
-                            layer.weight.grad.zero_()
-                            layer.bias.grad.zero_()
-
-                        else:
-                            
-                            intercept = self.intercepts[i-2]
-                            
-                            layer -= learning_rate * layer.grad
-                            intercept -= learning_rate * intercept.grad
-
-                            layer.grad.zero_()
-                            intercept.grad.zero_()
+                self.optimizer.step()
+                
 
     def test_model(self,x_test,y_test):
         correct = 0
